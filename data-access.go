@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -22,7 +23,9 @@ type LinkTweet struct {
 }
 
 //WriteLinkTweet writes a given Tweet to the datastore
-func WriteLinkTweet(c context.Context, tweets <-chan LinkTweet, semaphore chan<- int) {
+func WriteLinkTweet(c context.Context, tweets <-chan LinkTweet, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	var keys []*datastore.Key
 	var values []*StoreTweet
 
@@ -71,7 +74,6 @@ func WriteLinkTweet(c context.Context, tweets <-chan LinkTweet, semaphore chan<-
 	if err != nil {
 		log.Errorf(c, "Failed to write LinkTweet to datastore. %v", err.Error())
 	}
-	semaphore <- 1
 }
 
 //GetAllNewTweets queries the datastore and gets all tweets created since the last

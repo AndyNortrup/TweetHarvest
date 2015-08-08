@@ -19,6 +19,7 @@ type TweetScore struct {
 	Score      int
 	LastActive time.Time
 	TweetIDs   []int64
+	Keyword    string
 }
 
 //TweetProcessor is an instance of an HTTP server

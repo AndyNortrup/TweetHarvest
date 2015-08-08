@@ -13,13 +13,16 @@ import (
 	"github.com/ChimeraCoder/anaconda"
 	"github.com/mvdan/xurls"
 	"google.golang.org/appengine"
+	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
 	"google.golang.org/appengine/urlfetch"
 )
 
 //TweetHarvester is a microservice that querries the Twitter API and gets copies
 // of all of the tweets with a specified string from the query string.
-type TweetHarvester struct{}
+type TweetHarvester struct {
+	c context.Context
+}
 
 const queryParam string = "q"
 
@@ -38,77 +41,85 @@ func init() {
 //q which is the query string.
 func (th TweetHarvester) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	//Create a context
-	c := appengine.NewContext(request)
-	log.Infof(c, "Starting Tweet Harvest.")
+	th.c = appengine.NewContext(request)
+	log.Infof(th.c, "Starting Tweet Harvest.")
 
 	//Get the query string and validate that it is not an error
-	query, err := getQuery(c, request)
+	query, err := th.getQuery(request)
 	if err != nil {
-		log.Errorf(c, "Failed to get query from querystring.")
+		log.Errorf(th.c, "Failed to get query from querystring.")
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 
-	log.Infof(c, "Newest Tweet in datastore is dated: %v", getNewestTweet(c).String())
+	log.Infof(th.c, "Newest Tweet in datastore is dated: %v", getNewestTweet(th.c).String())
 
 	rawTweets := make(chan anaconda.Tweet)
 	shortLinkTweets := make(chan LinkTweet)
 	longLinkTweets := make(chan LinkTweet, 15)
-	semaphor := make(chan int)
 
-	go getTweets(c, query, rawTweets)
-	go extractLinks(c, rawTweets, shortLinkTweets)
-	go convertAddresses(c, shortLinkTweets, longLinkTweets)
-	go WriteLinkTweet(c, longLinkTweets, semaphor)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go th.getTweets(query, rawTweets, &wg)
+	go th.extractLinks(rawTweets, shortLinkTweets, &wg)
+	go th.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
+	go th.WriteLinkTweet(longLinkTweets, &wg)
 
-	<-semaphor
-
+	wg.Wait()
 	writer.WriteHeader(http.StatusOK)
 }
 
 //getQuery pulls the query from the q paramenter of the query string
-func getQuery(c context.Context, request *http.Request) (string, error) {
+func (th TweetHarvester) getQuery(request *http.Request) (string, error) {
 	result := request.URL.Query().Get(queryParam)
 
 	if result == "" {
 		return "", errors.New("No query specified.")
 	}
-	log.Infof(c, "Recived query parameter: %v", result)
+	log.Infof(th.c, "Recived query parameter: %v", result)
 	return result, nil
 }
 
 //getTweets gets all tweets from twitter with the speified keyword
-func getTweets(c context.Context, query string, out chan anaconda.Tweet) {
-	log.Infof(c, "Downloading Tweets.")
+func (th TweetHarvester) getTweets(query string,
+	out chan anaconda.Tweet,
+	wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	log.Infof(th.c, "Downloading Tweets.")
 	anaconda.SetConsumerKey(consumerKey)
 	anaconda.SetConsumerSecret(consumerSecretKey)
 
 	api := anaconda.NewTwitterApi(accessToken, accessTokenSecret)
 
-	api.HttpClient.Transport = &urlfetch.Transport{Context: c}
+	api.HttpClient.Transport = &urlfetch.Transport{Context: th.c}
 
 	result, err := api.GetSearch(query, nil)
 
 	if err != nil {
-		log.Errorf(c, "Harvester- getTweets: %v", err.Error())
+		log.Errorf(th.c, "Harvester- getTweets: %v", err.Error())
 		return
 	}
 	cont := true
 
 	for cont {
-		cont = addIfNewerThan(getNewestTweet(c), result, out)
+		cont = addIfNewerThan(getNewestTweet(th.c), result, out)
 		cont = false
 		if cont {
 			result, err = result.GetNext(api)
 			//log.Infof(c, "Getting more tweets!")
 			if err != nil {
-				log.Errorf(c, "Harvester- getTweets: %v", err.Error())
+				log.Errorf(th.c, "Harvester- getTweets: %v", err.Error())
 			}
 		}
 	}
 	close(out)
 }
 
-func addIfNewerThan(cutoff time.Time, result anaconda.SearchResponse, output chan anaconda.Tweet) bool {
+func addIfNewerThan(cutoff time.Time,
+	result anaconda.SearchResponse,
+	output chan anaconda.Tweet) bool {
+
 	cont := true
 	for _, tweet := range result.Statuses {
 		if time, _ := tweet.CreatedAtTime(); time.After(cutoff) {
@@ -123,7 +134,11 @@ func addIfNewerThan(cutoff time.Time, result anaconda.SearchResponse, output cha
 
 //extractLinks searches the contents of a tweet and pulls out any url from the
 // text.  Results in a channel of LinkTweet objects.
-func extractLinks(c context.Context, tweets <-chan anaconda.Tweet, out chan<- LinkTweet) {
+func (th TweetHarvester) extractLinks(tweets <-chan anaconda.Tweet,
+	out chan<- LinkTweet,
+	wg *sync.WaitGroup) {
+
+	defer wg.Done()
 
 	for tweet := range tweets {
 
@@ -142,8 +157,12 @@ func extractLinks(c context.Context, tweets <-chan anaconda.Tweet, out chan<- Li
 }
 
 //convertAddresses converts shortend addresses to their original format.
-func convertAddresses(c context.Context, links <-chan LinkTweet, out chan<- LinkTweet) {
-	client := urlfetch.Client(c)
+func (th TweetHarvester) convertAddresses(links <-chan LinkTweet,
+	out chan<- LinkTweet,
+	outterWG *sync.WaitGroup) {
+
+	defer outterWG.Done()
+	client := urlfetch.Client(th.c)
 
 	var wg sync.WaitGroup
 
@@ -155,7 +174,7 @@ func convertAddresses(c context.Context, links <-chan LinkTweet, out chan<- Link
 
 			response, err := client.Head(tweet.Address)
 			if err != nil {
-				log.Infof(c, "Harvester - convertAddress error: %v", err.Error())
+				log.Infof(th.c, "Harvester - convertAddress error: %v", err.Error())
 				return
 			}
 			tweet.Address = response.Request.URL.String()
@@ -166,4 +185,58 @@ func convertAddresses(c context.Context, links <-chan LinkTweet, out chan<- Link
 
 	wg.Wait()
 	close(out)
+}
+
+//WriteLinkTweet writes a given Tweet to the datastore
+func (th TweetHarvester) WriteLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	var keys []*datastore.Key
+	var values []*StoreTweet
+
+	for tweet := range tweets {
+		//log.Infof(c, "Putting Tweet into datastore: %v", tweet.Tweet.Id)
+
+		//log.Infof(c, "Key inputs: Kind - %v \t ParentKey: %v", linkTweetKind, getTweetKey(c).String())
+
+		key := datastore.NewIncompleteKey(th.c, linkTweetKind, getTweetKey(th.c))
+		created, _ := tweet.Tweet.CreatedAtTime()
+		/*
+			log.Infof(c, "Data: %v, \n\t%v, \n\t%v,\n\t%v,\n\t%v,\n\t%v",
+				tweet.Tweet.Text,
+				tweet.Address,
+				tweet.Tweet.Id,
+				created,
+				tweet.Tweet.RetweetCount,
+				tweet.Tweet.FavoriteCount)
+		*/
+		store := &StoreTweet{Address: tweet.Address,
+			Text:        tweet.Tweet.Text,
+			TweetID:     tweet.Tweet.Id,
+			CreatedTime: created,
+			Retweets:    tweet.Tweet.RetweetCount,
+			Favorites:   tweet.Tweet.FavoriteCount,
+		}
+		keys = append(keys, key)
+		values = append(values, store)
+
+		if key == nil {
+			err := errors.New("Key is nil befor put.")
+
+			log.Criticalf(th.c, "%v", err.Error())
+			return
+		}
+	}
+	err := datastore.RunInTransaction(th.c, func(c context.Context) error {
+		_, err := datastore.PutMulti(c, keys, values)
+
+		if err != nil {
+			log.Errorf(c, "Failed to write LinkTweet to datastore. %v", err.Error())
+			return err
+		}
+		return nil
+	}, nil)
+	if err != nil {
+		log.Errorf(th.c, "Failed to write LinkTweet to datastore. %v", err.Error())
+	}
 }

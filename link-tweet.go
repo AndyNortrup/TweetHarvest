@@ -12,6 +12,7 @@ type StoreTweet struct {
 	CreatedTime time.Time
 	Retweets    int
 	Favorites   int
+	Keyword     string
 }
 
 func (st StoreTweet) getScore() int {
