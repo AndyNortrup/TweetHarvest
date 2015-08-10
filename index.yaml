@@ -19,3 +19,10 @@ indexes:
   properties:
   - name: LastActive
   - name: -LastActive
+
+- kind: TweetScore
+  ancestor: yes
+  properties:
+  - name: Query
+  - name: LastActive
+    direction: desc

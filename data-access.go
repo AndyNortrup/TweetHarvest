@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -20,60 +18,8 @@ const tweetKeyID string = "default_tweetstore"
 type LinkTweet struct {
 	Address string
 	Tweet   anaconda.Tweet
-}
-
-//WriteLinkTweet writes a given Tweet to the datastore
-func WriteLinkTweet(c context.Context, tweets <-chan LinkTweet, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	var keys []*datastore.Key
-	var values []*StoreTweet
-
-	for tweet := range tweets {
-		//log.Infof(c, "Putting Tweet into datastore: %v", tweet.Tweet.Id)
-
-		//log.Infof(c, "Key inputs: Kind - %v \t ParentKey: %v", linkTweetKind, getTweetKey(c).String())
-
-		key := datastore.NewIncompleteKey(c, linkTweetKind, getTweetKey(c))
-		created, _ := tweet.Tweet.CreatedAtTime()
-		/*
-			log.Infof(c, "Data: %v, \n\t%v, \n\t%v,\n\t%v,\n\t%v,\n\t%v",
-				tweet.Tweet.Text,
-				tweet.Address,
-				tweet.Tweet.Id,
-				created,
-				tweet.Tweet.RetweetCount,
-				tweet.Tweet.FavoriteCount)
-		*/
-		store := &StoreTweet{Address: tweet.Address,
-			Text:        tweet.Tweet.Text,
-			TweetID:     tweet.Tweet.Id,
-			CreatedTime: created,
-			Retweets:    tweet.Tweet.RetweetCount,
-			Favorites:   tweet.Tweet.FavoriteCount,
-		}
-		keys = append(keys, key)
-		values = append(values, store)
-
-		if key == nil {
-			err := errors.New("Key is nil befor put.")
-
-			log.Criticalf(c, "%v", err.Error())
-			return
-		}
-	}
-	err := datastore.RunInTransaction(c, func(c context.Context) error {
-		_, err := datastore.PutMulti(c, keys, values)
-
-		if err != nil {
-			log.Errorf(c, "Failed to write LinkTweet to datastore. %v", err.Error())
-			return err
-		}
-		return nil
-	}, nil)
-	if err != nil {
-		log.Errorf(c, "Failed to write LinkTweet to datastore. %v", err.Error())
-	}
+	Query   string
+	Title   string
 }
 
 //GetAllNewTweets queries the datastore and gets all tweets created since the last

@@ -4,7 +4,9 @@ runtime: go
 api_version: go1
 
 handlers:
-- url: /harvest
+- url: /map
   script: _go_app
-- url: /process
+- url: /reduce
+  script: _go_app
+- url: /consume
   script: _go_app
