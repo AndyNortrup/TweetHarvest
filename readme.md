@@ -12,6 +12,6 @@ The process endpoint provides the map function to the process  and takes a keywo
 
 The process endpoint takes serves as a reduce function to the process.  It takes all tweets gathered by harvest and gives them a score (1 + favorites).  The address, score and a list of all associated TweetIDs are stored into the Datastore.
 
-##/consume (yet to be written)
+##/consume
 
-The consume endpoint takes a keyword, and returns a popularity sorted RSS feed of the most links gathered for that keyword.
+The consume endpoint takes a keyword, and returns a date sorted RSS feed of the most links gathered for that keyword.
