@@ -12,16 +12,6 @@ import (
 	"google.golang.org/appengine/log"
 )
 
-//TweetScore is a struct that shows the relative score of an address based on
-// it's populatrity
-type TweetScore struct {
-	Address    string
-	Score      int
-	LastActive time.Time
-	TweetIDs   []int64
-	Query      string
-}
-
 //Reducer is an instance of an HTTP server
 type Reducer struct {
 	c context.Context

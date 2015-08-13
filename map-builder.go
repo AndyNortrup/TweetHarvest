@@ -23,8 +23,6 @@ type MapBuilder struct {
 	query string
 }
 
-const queryParam string = "q"
-
 //ServeHTTP recives and processes a request from the web.  Expects a parameter
 //q which is the query string.
 func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -58,17 +56,6 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 
 	wg.Wait()
 	writer.WriteHeader(http.StatusOK)
-}
-
-//getQuery pulls the query from the q paramenter of the query string
-func getQuery(request *http.Request, c context.Context) (string, error) {
-	result := request.URL.Query().Get(queryParam)
-
-	if result == "" {
-		return "", errors.New("No query specified.")
-	}
-	log.Infof(c, "Recived query parameter: %v", result)
-	return result, nil
 }
 
 //extractLinks searches the contents of a tweet and pulls out any url from the
