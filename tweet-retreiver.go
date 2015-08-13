@@ -13,12 +13,12 @@ import (
 //TweetRetriever is responsible for getting a list of Tweets from the Twitter API
 type TweetRetriever struct {
 	context context.Context
+	out     chan<- anaconda.Tweet
 }
 
 //getTweets gets all tweets from twitter with the speified keyword
 func (tr TweetRetriever) getTweets(query string,
 	cutoff time.Time,
-	out chan anaconda.Tweet,
 	wg *sync.WaitGroup) {
 
 	defer wg.Done()
@@ -40,7 +40,7 @@ func (tr TweetRetriever) getTweets(query string,
 	cont := true
 
 	for cont {
-		cont = tr.addIfNewerThan(cutoff, result, out)
+		cont = tr.addIfNewerThan(cutoff, result)
 		cont = false
 		if cont {
 			result, err = result.GetNext(api)
@@ -50,17 +50,16 @@ func (tr TweetRetriever) getTweets(query string,
 			}
 		}
 	}
-	close(out)
+	close(tr.out)
 }
 
 func (tr TweetRetriever) addIfNewerThan(cutoff time.Time,
-	result anaconda.SearchResponse,
-	output chan anaconda.Tweet) bool {
+	result anaconda.SearchResponse) bool {
 
 	cont := true
 	for _, tweet := range result.Statuses {
 		if time, _ := tweet.CreatedAtTime(); time.After(cutoff) {
-			output <- tweet
+			tr.out <- tweet
 		} else {
 			cont = false
 			break

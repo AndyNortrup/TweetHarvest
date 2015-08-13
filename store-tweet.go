@@ -14,6 +14,7 @@ type StoreTweet struct {
 	Favorites   int
 	Query       string
 	Title       string
+	User        string
 }
 
 func (st StoreTweet) getScore() int {

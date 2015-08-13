@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 
 	"golang.org/x/net/context"
+	"golang.org/x/net/html"
 
 	"github.com/ChimeraCoder/anaconda"
 	"google.golang.org/appengine"
@@ -77,8 +79,11 @@ func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
 
 	defer wg.Done()
 
+	var inner sync.WaitGroup
 	for tweet := range tweets {
+		inner.Add(1)
 		go func(tweet anaconda.Tweet) {
+			defer inner.Done()
 			linkTweet, err := LinkTweetFrom(tweet)
 			if err == nil {
 				linkTweet.Query = mb.query
@@ -86,6 +91,7 @@ func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
 			}
 		}(tweet)
 	}
+	inner.Wait()
 	close(out)
 }
 
@@ -105,15 +111,20 @@ func (mb MapBuilder) convertAddresses(links <-chan LinkTweet,
 
 			defer wg.Done()
 
-			response, err := client.Head(tweet.Address)
+			response, err := client.Get(tweet.Address)
 			if err != nil {
 				log.Infof(mb.c, "Harvester - convertAddress error: %v", err.Error())
 				return
 			}
 			if response.Request.URL.String() != "" {
 				tweet.Address = response.Request.URL.String()
-				tweet.Title = mb.query
+				tweet.Query = mb.query
+				tweet.Title, err = mb.scrapeTitle(response)
+				if err != nil {
+					log.Infof(mb.c, err.Error())
+				}
 				out <- tweet
+
 			}
 		}(tweet, out)
 
@@ -121,6 +132,38 @@ func (mb MapBuilder) convertAddresses(links <-chan LinkTweet,
 
 	wg.Wait()
 	close(out)
+}
+
+func (mb MapBuilder) scrapeTitle(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
+
+	if strings.ToLower(resp.Header.Get("Content-Type")) != "text/html; charset=utf-8" {
+		message := "Wrong content type.  Recieved: " + resp.Header.Get("Content-Type") + " from " + resp.Request.URL.String()
+		log.Infof(mb.c, message)
+		return "", errors.New(message)
+	}
+
+	tokenizer := html.NewTokenizer(resp.Body)
+	var titleIsNext bool
+	for {
+		token := tokenizer.Next()
+		switch {
+		case token == html.ErrorToken:
+			log.Infof(mb.c, "Hit the end of the doc without finding title.")
+			return "", errors.New("Unable to find title tag in " + resp.Request.URL.String())
+		case token == html.StartTagToken:
+			tag := tokenizer.Token()
+			isTitle := tag.Data == "title"
+
+			if isTitle {
+				titleIsNext = true
+			}
+		case titleIsNext && token == html.TextToken:
+			title := tokenizer.Token().Data
+			log.Infof(mb.c, "Pulled title: %v", title)
+			return title, nil
+		}
+	}
 }
 
 //WriteLinkTweet writes a given Tweet to the datastore
@@ -154,6 +197,7 @@ func (mb MapBuilder) WriteLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup)
 			Favorites:   tweet.Tweet.FavoriteCount,
 			Query:       tweet.Query,
 			User:        tweet.Tweet.User.Name,
+			Title:       tweet.Title,
 		}
 		keys = append(keys, key)
 		values = append(values, store)
