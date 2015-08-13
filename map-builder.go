@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"sync"
-	"time"
 
 	"golang.org/x/net/context"
 
@@ -40,15 +39,18 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	}
 	mb.query = query
 
-	log.Infof(mb.c, "Newest Tweet in datastore is dated: %v", getNewestTweet(mb.c).String())
+	cutoff := getNewestTweet(mb.c)
+	log.Infof(mb.c, "Newest Tweet in datastore is dated: %v", cutoff.String())
 
 	rawTweets := make(chan anaconda.Tweet)
 	shortLinkTweets := make(chan LinkTweet)
 	longLinkTweets := make(chan LinkTweet, 15)
 
+	retriever := &TweetRetriever{context: mb.c}
+
 	var wg sync.WaitGroup
 	wg.Add(4)
-	go mb.getTweets(rawTweets, &wg)
+	go retriever.getTweets(query, cutoff, rawTweets, &wg)
 	go mb.extractLinks(rawTweets, shortLinkTweets, &wg)
 	go mb.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
 	go mb.WriteLinkTweet(longLinkTweets, &wg)
@@ -66,58 +68,6 @@ func getQuery(request *http.Request, c context.Context) (string, error) {
 	}
 	log.Infof(c, "Recived query parameter: %v", result)
 	return result, nil
-}
-
-//getTweets gets all tweets from twitter with the speified keyword
-func (mb MapBuilder) getTweets(out chan anaconda.Tweet,
-	wg *sync.WaitGroup) {
-
-	defer wg.Done()
-
-	log.Infof(mb.c, "Downloading Tweets.")
-	anaconda.SetConsumerKey(consumerKey)
-	anaconda.SetConsumerSecret(consumerSecretKey)
-
-	api := anaconda.NewTwitterApi(accessToken, accessTokenSecret)
-
-	api.HttpClient.Transport = &urlfetch.Transport{Context: mb.c}
-
-	result, err := api.GetSearch(mb.query, nil)
-
-	if err != nil {
-		log.Errorf(mb.c, "Harvester- getTweets: %v", err.Error())
-		return
-	}
-	cont := true
-
-	for cont {
-		cont = addIfNewerThan(getNewestTweet(mb.c), result, out)
-		cont = false
-		if cont {
-			result, err = result.GetNext(api)
-			//log.Infof(c, "Getting more tweets!")
-			if err != nil {
-				log.Errorf(mb.c, "Harvester- getTweets: %v", err.Error())
-			}
-		}
-	}
-	close(out)
-}
-
-func addIfNewerThan(cutoff time.Time,
-	result anaconda.SearchResponse,
-	output chan anaconda.Tweet) bool {
-
-	cont := true
-	for _, tweet := range result.Statuses {
-		if time, _ := tweet.CreatedAtTime(); time.After(cutoff) {
-			output <- tweet
-		} else {
-			cont = false
-			break
-		}
-	}
-	return cont
 }
 
 //extractLinks searches the contents of a tweet and pulls out any url from the
@@ -209,6 +159,7 @@ func (mb MapBuilder) WriteLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup)
 			Retweets:    tweet.Tweet.RetweetCount,
 			Favorites:   tweet.Tweet.FavoriteCount,
 			Query:       tweet.Query,
+			User:        tweet.Tweet.User.Name,
 		}
 		keys = append(keys, key)
 		values = append(values, store)
