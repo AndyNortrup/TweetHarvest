@@ -8,7 +8,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/ChimeraCoder/anaconda"
-	"github.com/mvdan/xurls"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
@@ -46,11 +45,11 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	shortLinkTweets := make(chan LinkTweet)
 	longLinkTweets := make(chan LinkTweet, 15)
 
-	retriever := &TweetRetriever{context: mb.c}
+	retriever := &TweetRetriever{context: mb.c, out: rawTweets}
 
 	var wg sync.WaitGroup
 	wg.Add(4)
-	go retriever.getTweets(query, cutoff, rawTweets, &wg)
+	go retriever.getTweets(query, cutoff, &wg)
 	go mb.extractLinks(rawTweets, shortLinkTweets, &wg)
 	go mb.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
 	go mb.WriteLinkTweet(longLinkTweets, &wg)
@@ -79,18 +78,13 @@ func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
 	defer wg.Done()
 
 	for tweet := range tweets {
-
-		rawAddr := xurls.Strict.FindString(tweet.Text)
-
-		if rawAddr != "" {
-			//log.Infof(c, "Extracted Link: %v", rawAddr)
-			linkTweet := LinkTweet{
-				Address: rawAddr,
-				Tweet:   tweet,
-				Query:   mb.query,
+		go func(tweet anaconda.Tweet) {
+			linkTweet, err := LinkTweetFrom(tweet)
+			if err == nil {
+				linkTweet.Query = mb.query
+				out <- linkTweet
 			}
-			out <- linkTweet
-		}
+		}(tweet)
 	}
 	close(out)
 }
