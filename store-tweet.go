@@ -13,7 +13,6 @@ type StoreTweet struct {
 	Retweets    int
 	Favorites   int
 	Query       string
-	Title       string
 	User        string
 }
 

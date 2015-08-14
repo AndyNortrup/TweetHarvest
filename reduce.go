@@ -1,15 +1,19 @@
 package main
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
+	"golang.org/x/net/html"
 
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
+	"google.golang.org/appengine/urlfetch"
 )
 
 //Reducer is an instance of an HTTP server
@@ -106,6 +110,12 @@ func (reduce Reducer) updateDataStoreScore(score TweetScore, wg *sync.WaitGroup)
 	if err != nil && err == datastore.Done {
 		//log.Infof(reduce.c, "No old score exists for this address.")
 		//No old score exists, so we just add the new one
+
+		oldScore.Title, err = reduce.
+			getTitle(score.Address)
+		if err != nil {
+			log.Infof(reduce.c, "Failed to GET address: %v \n\t%v", score.Address, err.Error())
+		}
 		oldScore.Address = score.Address
 		oldScore.LastActive = score.LastActive
 		oldScore.Score = score.Score
@@ -127,10 +137,60 @@ func (reduce Reducer) updateDataStoreScore(score TweetScore, wg *sync.WaitGroup)
 	datastore.Put(reduce.c, key, oldScore)
 }
 
-//Gets the last date that any score was active, which should be the date of the last processed tweet
+//getTitle retrives the content of an address then sends the body to the scraper
+// to in order to find the title which is returnted to the user.
+func (reduce Reducer) getTitle(address string) (string, error) {
+	client := urlfetch.Client(reduce.c)
+	resp, err := client.Get(address)
+
+	if err != nil {
+		return "", err
+	}
+	return reduce.scrapeTitle(resp)
+}
+
+//scrapeTitle parses through an HTML document to find the <title> tag then get
+// the content of that tag and return it to the user.
+func (reduce Reducer) scrapeTitle(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
+
+	if strings.ToLower(resp.Header.Get("Content-Type")) != "text/html; charset=utf-8" {
+		message := "Wrong content type.  Recieved: " + resp.Header.Get("Content-Type") + " from " + resp.Request.URL.String()
+		log.Infof(reduce.c, message)
+		return "", errors.New(message)
+	}
+
+	tokenizer := html.NewTokenizer(resp.Body)
+	var titleIsNext bool
+	for {
+		token := tokenizer.Next()
+		switch {
+		case token == html.ErrorToken:
+			log.Infof(reduce.c, "Hit the end of the doc without finding title.")
+			return "", errors.New("Unable to find title tag in " + resp.Request.URL.String())
+		case token == html.StartTagToken:
+			tag := tokenizer.Token()
+			isTitle := tag.Data == "title"
+
+			if isTitle {
+				titleIsNext = true
+			}
+		case titleIsNext && token == html.TextToken:
+			title := tokenizer.Token().Data
+			log.Infof(reduce.c, "Pulled title: %v", title)
+			return title, nil
+		}
+	}
+}
+
+//getLastProcessedTweet gets the last date that any score was active,
+// which should be the date of the last processed tweet
 func (reduce Reducer) getLastProcessedTweet() time.Time {
 	//Get a single value from the datastore with the newest date
-	q := datastore.NewQuery(tweetScoreKind).Project("LastActive").Order("-LastActive").Limit(1)
+	q := datastore.NewQuery(tweetScoreKind).
+		Project("LastActive").
+		Order("-LastActive").Limit(1)
+
 	i := q.Run(reduce.c)
 
 	score := &TweetScore{}

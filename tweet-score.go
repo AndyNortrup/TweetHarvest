@@ -16,6 +16,7 @@ type TweetScore struct {
 	LastActive time.Time
 	TweetIDs   []int64
 	Query      string
+	Title      string
 }
 
 //GetFeedItem returns a feeds.Item to be inserted into an RSS or Atom feed
