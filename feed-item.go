@@ -44,7 +44,7 @@ func (item *FeedItem) getItem() *feeds.Item {
 func (item *FeedItem) BuildDescription(c context.Context) {
 	var embedWG sync.WaitGroup
 
-	embeds := make(chan *StoreTweet)
+	embeds := make(chan *LinkTweet)
 	for _, tweetID := range item.TweetIDs {
 		embedWG.Add(1)
 		go item.getEmbedFor(tweetID, embeds, &embedWG, c)
@@ -61,7 +61,7 @@ func (item *FeedItem) BuildDescription(c context.Context) {
 
 //Send a request to Twitter for the embed.
 func (item *FeedItem) getEmbedFor(tweetID int64,
-	out chan<- *StoreTweet,
+	out chan<- *LinkTweet,
 	wg *sync.WaitGroup,
 	c context.Context) {
 
@@ -72,7 +72,7 @@ func (item *FeedItem) getEmbedFor(tweetID int64,
 		Limit(1).
 		Run(c)
 
-	tweet := &StoreTweet{}
+	tweet := &LinkTweet{}
 	_, err := iterator.Next(tweet)
 	if err != nil {
 		log.Errorf(c, "Error getting tweets for embed. \n\t%v", err.Error())
@@ -83,11 +83,11 @@ func (item *FeedItem) getEmbedFor(tweetID int64,
 //buildDescription compiles the individual html parts from the getEmbedFor
 // routines
 func (item *FeedItem) combineDescription(
-	in <-chan *StoreTweet,
+	in <-chan *LinkTweet,
 	out chan<- string,
 	c context.Context) {
 
-	var parts StoreTweets
+	var parts LinkTweets
 	for tweet := range in {
 		parts = append(parts, tweet)
 	}

@@ -120,7 +120,7 @@ func (mb MapBuilder) writeLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup)
 	defer wg.Done()
 
 	var keys []*datastore.Key
-	var values []*StoreTweet
+	var values LinkTweets
 
 	for tweet := range tweets {
 		//log.Infof(c, "Putting Tweet into datastore: %v", tweet.Tweet.Id)
@@ -129,18 +129,8 @@ func (mb MapBuilder) writeLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup)
 
 		key := datastore.NewIncompleteKey(mb.c, linkTweetKind, getTweetKey(mb.c))
 
-		store := &StoreTweet{Address: tweet.Address,
-			Text:      tweet.Tweet.Text,
-			TweetID:   tweet.Tweet.Id,
-			Retweets:  tweet.Tweet.RetweetCount,
-			Favorites: tweet.Tweet.FavoriteCount,
-			Query:     tweet.Query,
-			User:      tweet.Tweet.User.Name,
-		}
-		store.CreatedTime, _ = tweet.Tweet.CreatedAtTime()
-
 		keys = append(keys, key)
-		values = append(values, store)
+		values = append(values, &tweet)
 
 		if key == nil {
 			err := errors.New("Key is nil befor put.")

@@ -78,8 +78,8 @@ func (reduce Reducer) calculateNewScores(out chan<- *TweetScore, wg *sync.WaitGr
 
 		//Update the score, LastAvtive, and TweetIDs data with the current tweet
 		score[data.Address].Score = score[data.Address].Score + data.getScore()
-		score[data.Address].LastActive = data.CreatedTime
-		score[data.Address].TweetIDs = append(score[data.Address].TweetIDs, data.TweetID)
+		score[data.Address].LastActive, _ = data.CreatedAtTime()
+		score[data.Address].TweetIDs = append(score[data.Address].TweetIDs, data.Id)
 	}
 
 	//Range over the map and output the values into the channel for further processing

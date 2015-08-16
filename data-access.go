@@ -8,29 +8,29 @@ import (
 	"google.golang.org/appengine/log"
 )
 
-const linkTweetKind string = "LinkTweet"
 const tweetKey string = "Tweets"
 const tweetKeyID string = "default_tweetstore"
 
 //GetAllNewTweets queries the datastore and gets all tweets created since the last
 // time given
-func GetAllNewTweets(since time.Time, c context.Context) []StoreTweet {
+func GetAllNewTweets(since time.Time, c context.Context) LinkTweets {
 	log.Infof(c, "Getting all tweets newer than: %v", since)
 	q := datastore.NewQuery(linkTweetKind).Ancestor(getTweetKey(c)).Filter("CreatedTime >", since)
-	out := make([]StoreTweet, 0, 15)
+	out := make(LinkTweets, 0, 15)
 	q.GetAll(c, &out)
 	return out
 }
 
 func getNewestTweet(c context.Context) time.Time {
-	var latest StoreTweet
+	var latest LinkTweet
 
 	//Get just the key for the newest tweet
 	q := datastore.NewQuery(linkTweetKind).Order("-CreatedTime").Project("CreatedTime").Limit(1)
 	q.GetAll(c, latest)
 	i := q.Run(c)
 	i.Next(&latest)
-	return latest.CreatedTime
+	time, _ := latest.CreatedAtTime()
+	return time
 }
 
 // guestbookKey returns the key used for all guestbook entries.
