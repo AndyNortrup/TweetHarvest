@@ -11,6 +11,12 @@ indexes:
 # your application using appcfg.py.
 
 - kind: LinkTweet
+  properties:
+  - name: TweetID
+  - name: Text
+  - name: User
+
+- kind: LinkTweet
   ancestor: yes
   properties:
   - name: CreatedTime

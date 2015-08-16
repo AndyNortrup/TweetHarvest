@@ -29,14 +29,3 @@ func (score TweetScore) GetFeedItem(id string, c context.Context) *feeds.Item {
 
 	return entry
 }
-
-func (score TweetScore) buildDescription(c context.Context) {
-	/*
-		var wg sync.WaitGroup
-		for tweetID := range score.TweetIDs {
-			wg.Add(1)
-			//Todo: Go routine to get the name of user and content of
-			//tweets and add add them to the description.
-		}
-	*/
-}

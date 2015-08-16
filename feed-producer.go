@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -15,79 +16,100 @@ import (
 
 //FeedProducer is a Handler that takes a query and returns a RSS feed
 type FeedProducer struct {
-	c context.Context
+	c     context.Context
+	query string
 }
 
 //ServeHTTP responds to http requests for the /consume endpoint
 func (fp FeedProducer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	fp.c = appengine.NewContext(request)
 
-	var wg sync.WaitGroup
-
-	rawData := make(chan feeds.Item)
-
 	query, err := getQuery(request, fp.c)
 	if err != nil {
 		log.Errorf(fp.c, "No query provided.")
 		http.Error(writer, "No query provided.", http.StatusBadRequest)
 	}
-	wg.Add(2)
+	fp.query = query
 
-	go fp.getContentFromDatastore(query, rawData, &wg)
+	items := make(chan *FeedItem)
 
-	fp.returnFeed(writer, query, rawData, &wg)
+	scores := fp.getContentFromDatastore()
+	log.Infof(fp.c, "Recieved %v scores.", len(scores))
 
+	go fp.getDescriptions(scores, items)
+
+	fp.returnFeed(writer, items)
 }
 
-func (fp FeedProducer) getContentFromDatastore(query string, out chan<- feeds.Item, wg *sync.WaitGroup) {
-	log.Infof(fp.c, "Getting active tweets from the last 7 days.")
+func (fp FeedProducer) getContentFromDatastore() FeedItems {
 
-	defer wg.Done()
+	var out FeedItems
 
 	q := datastore.NewQuery(tweetScoreKind).
 		Ancestor(getTweetScoreKey(fp.c)).
 		Filter("LastActive >=", time.Now().AddDate(0, 0, -7)).
-		Filter("Query =", query).
+		Distinct().
+		Filter("Query =", fp.query).
 		Order("-LastActive")
 
 	for i := q.Run(fp.c); ; {
-
-		score := &TweetScore{}
-		_, err := i.Next(score)
+		item := &FeedItem{}
+		key, err := i.Next(item)
 		if err == datastore.Done {
 			break
 		}
 		if err != nil {
 			log.Errorf(fp.c, "Error reading from datastore. %v", err.Error())
 		}
+		item.key = key.StringID()
 
-		//		out <- *entry
+		out = append(out, item)
 	}
+	return out
+}
+
+func (fp FeedProducer) getDescriptions(in FeedItems, out chan<- *FeedItem) {
+	var wg sync.WaitGroup
+	for _, val := range in {
+		wg.Add(1)
+		go func(item *FeedItem) {
+			defer wg.Done()
+			item.BuildDescription(fp.c)
+			out <- item
+		}(val)
+	}
+	wg.Wait()
 	close(out)
 }
 
-func (fp FeedProducer) returnFeed(w http.ResponseWriter,
-	query string,
-	in <-chan feeds.Item,
-	wg *sync.WaitGroup) {
+func (fp FeedProducer) returnFeed(w http.ResponseWriter, in <-chan *FeedItem) {
 
 	feed := &feeds.Feed{
-		Link:        &feeds.Link{Href: "tweet-integrator.appspot.com/consume?q=golang"},
-		Author:      &feeds.Author{Name: "Andy Nortrup", Email: "andrew.nortrup@gmail.com"},
-		Description: "Top articles from twitter about: " + query,
-		Created:     time.Now(),
-		Title:       "Tweet Harvest of topic: " + query,
+		Link:    &feeds.Link{Href: "http://tweet-integrator.appspot.com/consume?q=golang"},
+		Author:  &feeds.Author{Name: "Andy Nortrup", Email: "andrew.nortrup@gmail.com"},
+		Title:   "Top articles from twitter about: " + fp.query,
+		Updated: time.Now(),
 	}
 
+	var scoreItems FeedItems
 	for item := range in {
-		log.Infof(fp.c, "Added Item to output feed: %v", item.Title)
-		feed.Add(&item)
+		scoreItems = append(scoreItems, item)
 	}
 
-	wg.Wait()
-	err := feed.WriteRss(w)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	sort.Sort(scoreItems)
+	log.Infof(fp.c, "%v total items to put in feed", len(scoreItems))
+
+	for _, item := range scoreItems {
+		feed.Add(item.getItem())
 	}
-	w.WriteHeader(http.StatusOK)
+
+	log.Infof(fp.c, "Writing output.")
+	atom, err := feed.ToAtom()
+	if err != nil {
+		log.Errorf(fp.c, "Error writing ATOM: %v", err.Error())
+		return
+	}
+	//w.Header().Add("Content-Type", "application/atom+xml")
+	w.Write([]byte(atom))
+
 }
