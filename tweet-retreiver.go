@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ChimeraCoder/anaconda"
+	"github.com/AndyNortrup/anaconda"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/log"
 	"google.golang.org/appengine/urlfetch"

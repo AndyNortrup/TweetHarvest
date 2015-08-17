@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/ChimeraCoder/anaconda"
+	"github.com/AndyNortrup/anaconda"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
@@ -41,7 +41,7 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 
 	rawTweets := make(chan anaconda.Tweet)
 	shortLinkTweets := make(chan LinkTweet)
-	longLinkTweets := make(chan LinkTweet, 15)
+	//longLinkTweets := make(chan LinkTweet, 15)
 
 	retriever := &TweetRetriever{context: mb.c, out: rawTweets}
 
@@ -49,8 +49,8 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	wg.Add(4)
 	go retriever.getTweets(query, cutoff, &wg)
 	go mb.extractLinks(rawTweets, shortLinkTweets, &wg)
-	go mb.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
-	go mb.writeLinkTweet(longLinkTweets, &wg)
+	//go mb.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
+	go mb.writeLinkTweet(shortLinkTweets, &wg)
 
 	wg.Wait()
 	writer.WriteHeader(http.StatusOK)
