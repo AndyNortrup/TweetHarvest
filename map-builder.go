@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"net/http"
 	"sync"
 
@@ -11,7 +10,6 @@ import (
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
-	"google.golang.org/appengine/urlfetch"
 )
 
 //MapBuilder is a microservice that querries the Twitter API and gets copies
@@ -40,7 +38,7 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	log.Infof(mb.c, "Newest Tweet in datastore is dated: %v", cutoff.String())
 
 	rawTweets := make(chan anaconda.Tweet)
-	shortLinkTweets := make(chan LinkTweet)
+	shortLinkTweets := make(chan anaconda.Tweet)
 	//longLinkTweets := make(chan LinkTweet, 15)
 
 	retriever := &TweetRetriever{context: mb.c, out: rawTweets}
@@ -49,8 +47,6 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	wg.Add(4)
 	go retriever.getTweets(query, cutoff, &wg)
 	go mb.extractLinks(rawTweets, shortLinkTweets, &wg)
-	//go mb.convertAddresses(shortLinkTweets, longLinkTweets, &wg)
-	go mb.writeLinkTweet(shortLinkTweets, &wg)
 
 	wg.Wait()
 	writer.WriteHeader(http.StatusOK)
@@ -59,7 +55,7 @@ func (mb MapBuilder) ServeHTTP(writer http.ResponseWriter, request *http.Request
 //extractLinks searches the contents of a tweet and pulls out any url from the
 // text.  Results in a channel of LinkTweet objects.
 func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
-	out chan<- LinkTweet,
+	out chan<- anaconda.Tweet,
 	wg *sync.WaitGroup) {
 
 	defer wg.Done()
@@ -69,10 +65,8 @@ func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
 		inner.Add(1)
 		go func(tweet anaconda.Tweet) {
 			defer inner.Done()
-			linkTweet, err := LinkTweetFrom(tweet)
-			if err == nil {
-				linkTweet.Query = mb.query
-				out <- linkTweet
+			if len(tweet.Entities.Urls) > 0 {
+				out <- tweet
 			}
 		}(tweet)
 	}
@@ -80,65 +74,32 @@ func (mb MapBuilder) extractLinks(tweets <-chan anaconda.Tweet,
 	close(out)
 }
 
-//convertAddresses converts shortend addresses to their original format.
-func (mb MapBuilder) convertAddresses(links <-chan LinkTweet,
-	out chan<- LinkTweet,
-	wg *sync.WaitGroup) {
+func makeMap(tweets <-chan anaconda.Tweet, wg *sync.WaitGroup) map[string][]int64 {
+	var out map[string][]int64
 
-	defer wg.Done()
-	client := urlfetch.Client(mb.c)
-
-	var innerWg sync.WaitGroup
-
-	for tweet := range links {
-		innerWg.Add(1)
-		go func(tweet LinkTweet, out chan<- LinkTweet) {
-
-			defer innerWg.Done()
-
-			response, err := client.Head(tweet.Address)
-			if err != nil {
-				log.Infof(mb.c, "Harvester - convertAddress error: %v", err.Error())
-				return
+	for tweet := range tweets {
+		for _, address := range tweet.Entities.Urls {
+			if out[address.Expanded_url] == nil {
+				out[address.Expanded_url] = []int64{tweet.Id}
 			}
-			if response.Request.URL.String() != "" {
-				tweet.Address = response.Request.URL.String()
-				tweet.Query = mb.query
-				out <- tweet
-
-			}
-		}(tweet, out)
-
+		}
 	}
-
-	innerWg.Wait()
-	close(out)
+	return out
 }
 
 //WriteLinkTweet writes a given Tweet to the datastore
-func (mb MapBuilder) writeLinkTweet(tweets <-chan LinkTweet, wg *sync.WaitGroup) {
+func (mb MapBuilder) writeLinkTweet(tweets <-chan anaconda.Tweet, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	var keys []*datastore.Key
-	var values LinkTweets
+	var values []*anaconda.Tweet
 
 	for tweet := range tweets {
-		//log.Infof(c, "Putting Tweet into datastore: %v", tweet.Tweet.Id)
-
-		//log.Infof(c, "Key inputs: Kind - %v \t ParentKey: %v", linkTweetKind, getTweetKey(c).String())
-
 		key := datastore.NewIncompleteKey(mb.c, linkTweetKind, getTweetKey(mb.c))
-
 		keys = append(keys, key)
 		values = append(values, &tweet)
-
-		if key == nil {
-			err := errors.New("Key is nil befor put.")
-
-			log.Criticalf(mb.c, "%v", err.Error())
-			return
-		}
 	}
+
 	err := datastore.RunInTransaction(mb.c, func(c context.Context) error {
 		_, err := datastore.PutMulti(c, keys, values)
 
