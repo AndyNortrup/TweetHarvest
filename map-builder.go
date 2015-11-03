@@ -92,12 +92,12 @@ func (mb MapBuilder) writeLinkTweet(tweets <-chan anaconda.Tweet, wg *sync.WaitG
 	defer wg.Done()
 
 	var keys []*datastore.Key
-	var values []*anaconda.Tweet
+	var values []*int64
 
 	for tweet := range tweets {
 		key := datastore.NewIncompleteKey(mb.c, linkTweetKind, getTweetKey(mb.c))
 		keys = append(keys, key)
-		values = append(values, &tweet)
+		values = append(values, &tweet.Id)
 	}
 
 	err := datastore.RunInTransaction(mb.c, func(c context.Context) error {
