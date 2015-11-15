@@ -1,10 +1,10 @@
-package main
+package tweetharvest
 
 import (
 	"sync"
 	"time"
 
-	"github.com/AndyNortrup/anaconda"
+	"github.com/ChimeraCoder/anaconda"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/log"
 	"google.golang.org/appengine/urlfetch"

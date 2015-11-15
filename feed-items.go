@@ -1,4 +1,4 @@
-package main
+package tweetharvest
 
 //FeedItems is a sortable slice of FeedItem objects.
 type FeedItems []*FeedItem

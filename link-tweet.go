@@ -1,11 +1,11 @@
-package main
+package tweetharvest
 
 import (
 	"reflect"
 
 	"google.golang.org/appengine/datastore"
 
-	"github.com/AndyNortrup/anaconda"
+	"github.com/ChimeraCoder/anaconda"
 )
 
 //LinkTweet contains the address extracted from a tweet and the original tweet

@@ -1,4 +1,4 @@
-package main
+package tweetharvest
 
 import (
 	"net/http"
@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/AndyNortrup/anaconda"
+	"github.com/ChimeraCoder/anaconda"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"

@@ -1,4 +1,4 @@
-package main
+package tweetharvest
 
 import (
 	"errors"
@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/html"
 
+	"github.com/ChimeraCoder/anaconda"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
@@ -37,22 +38,20 @@ func (reduce Reducer) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	//new Scores is a channel that passess TweetScore structs between calculateNewScores
-	// and updateDataStoreScore
-	newScores := make(chan *TweetScore)
-	go reduce.calculateNewScores(newScores, &wg)
-
-	//iterate over the contents of the newScores channel and update the datastore
-	for score := range newScores {
-		wg.Add(1)
-		go reduce.updateDataStoreScore(*score, &wg)
-	}
+	//tweets is a channel for holding TweetIDs
+	tweets := make(chan *anaconda.Tweet)
+	go reduce.queryForTweets(tweets, &wg)
 
 	//Hold until updateDatastore is compelete
 	wg.Wait()
 	writer.WriteHeader(http.StatusOK)
 }
 
+func (reduce Reducer) queryForTweets(out chan<- *anaconda.Tweet, wg *sync.WaitGroup) {
+	defer wg.Done()
+	//lastProcess := reduce.getLastProcessedTweet()
+
+}
 func (reduce Reducer) calculateNewScores(out chan<- *TweetScore, wg *sync.WaitGroup) {
 	log.Infof(reduce.c, "Calculating New Scores")
 
